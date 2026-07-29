@@ -1,35 +1,45 @@
-## Solution plan
+## Solution Plan
 
-**Issue:** [Health check references settings.redis_host, which does not exist on Settings
-](https://github.com/ascherj/pathreview/issues/155)
+**Issue:** [#155 — Health check references settings.redis_host, which does not exist on Settings](https://github.com/ascherj/pathreview/issues/155)
 
 ### Understand
-What is the root cause of this issue? What behavior is expected vs. actual?
-The root cause of this issue is that when instantiating a Redis connection inside `api/routes/health.py`, the Settings config object is missing the required `redis_host` and `redis_port` fields causing an Exception to be raised and making the redis dependency appear as failing. 
 
-The expected behavior is that if the Redis instance is live, this should return a healthy result but since the settings object is missing the two redis fields, it is incorrectly saying that the redis instance is unhealthy. 
+**Root cause:** When the health check endpoint tries to instantiate a Redis connection in `api/routes/health.py` (lines 44–49), it references `settings.redis_host` and `settings.redis_port`. These fields do not exist in the Settings model in `core/config.py`, causing an `AttributeError` before the Redis health check can run.
+
+**Expected behavior:** The health endpoint should successfully connect to Redis (if running) and report its status as healthy or unhealthy based on actual connectivity.
+
+**Current behavior:** The endpoint crashes with `AttributeError` before it can probe Redis.
 
 ### Map
-Which files, functions, or modules are involved?
-List the specific files you expect to touch.
 
-In this issue, only the `core/config.py` module is involved as the Settings object needs to have those two `redis_port` and `redis_host` information added. 
-
+**Files to modify:**
+- `core/config.py` — Add `redis_host` and `redis_port` fields to the Settings model
+- `api/routes/health.py` — Already references these fields (lines 44–49); will work once Settings is updated
 
 ### Plan
-What are the steps to fix this issue?
-Break it into 3–5 concrete sub-tasks.
-1. Add the redis_port and redis_host fields to the settings object in `config.py`
-2. reload the server and send a GET request to /health endpoint and verify that with the correct host and port info, the health check endpoint shows that the redis health is healthy instead of incorrect current unhealthy status.
 
-### Inputs & outputs
-What does your fix take as input? What should it produce or change?
-The input is a GET request to the /health endpoint. After the fix is applied, it should show the redis service as healthy. 
+1. Add `redis_host` and `redis_port` fields to the Settings model in `core/config.py` (with defaults matching `redis_url`)
+2. Update `.env.example` to include `REDIS_HOST` and `REDIS_PORT` entries so developers know these fields exist
+3. Verify the health check endpoint can now instantiate a Redis connection without `AttributeError`
+4. Test GET `/health` with Redis running and confirm it reports `"redis": "healthy"`
+5. Write unit tests for the `/health` endpoint covering success and failure cases
+6. Verify no other code references these fields (grep confirms they only appear in health.py)
 
-### Risks & unknowns
-What could go wrong? What are you still unsure about?
-Since the change is involved with adding new fields to the settings object, this should not lead to any breaking changes. The risk is that if we are not using a .env file and are hardcoding the host and port info directly in the module, it might accidentally be misconfigured but that is beyond the scope of this bug and is more of a best practices discussion when it comes to hardcoding the credentials directly in the config file. Maybe we can use dotenv to load these config info from an env file or some secrets manager instead of hardcoding it. 
+### Inputs & Outputs
 
-### Edge cases
-What inputs or states should your fix handle gracefully?
-None as there is only one possible input ie. GET request to the /health endpoint. 
+**Input:** GET request to `/health` endpoint
+
+**Output:** HTTP 200 with health status JSON showing redis status, or HTTP 503 if any dependency is unhealthy
+
+### Risks & Unknowns
+
+**Risk:** Adding new configuration fields could cause issues if the defaults don't match the environment. Mitigation: Use the same defaults as `redis_url` parsing.
+
+**Known:** The project already uses `.env` files and environment variables via pydantic-settings, so the new fields will be automatically populated from `REDIS_HOST` and `REDIS_PORT` env vars.
+
+### Edge Cases
+
+The fix should handle:
+- Redis server is down → health check should report unhealthy (graceful error handling already in place)
+- Redis connection timeout → error caught and status set to unhealthy
+- Missing env vars → defaults from `redis_url` apply 
