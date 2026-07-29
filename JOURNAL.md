@@ -27,3 +27,13 @@ The **GET /health** endpoint in `api/routes/health.py` attempts to create a Redi
 [X] **Codebase Ready:** Read health.py lines 44–49, config.py Settings model, no existing /health tests (will write first)
 
 [X] **Scope Realistic:** 2–3 hours estimated, no blockers, redis_host only referenced in health.py
+
+### Bug Reproduction
+
+1. Start the Docker containers, server, and frontend with `make setup` and `make run`
+2. Open your browser and navigate to `http://localhost:8000/health`
+3. Observe the error: 
+`json
+{"detail":{"status":"unhealthy","dependencies":{"postgres":"unhealthy","redis":"unhealthy","vector_db":"healthy"},"safety_events_last_hour":0,"timestamp":"2026-07-29T01:38:52.933153"}}
+`
+
